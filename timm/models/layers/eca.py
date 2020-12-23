@@ -50,8 +50,7 @@ def get_dct_weights(width, height, channel, fidx_u, fidx_v):
     for i, (u_x, v_y) in enumerate(zip(fidx_u, fidx_v)):
         for t_x in range(width):
             for t_y in range(height):
-                dct_weights[:, i*c_part:(i+1)*c_part, t_x, t_y] = 
-                get_1d_dct(t_x, u_x, width) * get_1d_dct(t_y, v_y, height)
+                dct_weights[:, i*c_part:(i+1)*c_part, t_x, t_y] = get_1d_dct(t_x, u_x, width) * get_1d_dct(t_y, v_y, height)
     return dct_weights
 
 
