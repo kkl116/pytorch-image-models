@@ -4,7 +4,7 @@ Hacked together by / Copyright 2020 Ross Wightman
 """
 import torch
 from .se import SEModule, EffectiveSEModule
-from .eca import EcaModule, CecaModule
+from .eca import EcaModule, CecaModule, FEcaModule
 from .cbam import CbamModule, LightCbamModule
 
 
@@ -25,6 +25,8 @@ def create_attn(attn_type, channels, **kwargs):
                 module_cls = CbamModule
             elif attn_type == 'lcbam':
                 module_cls = LightCbamModule
+            elif attn_type == 'feca':
+                module_cls = FEcaModule
             else:
                 assert False, "Invalid attn module (%s)" % attn_type
         elif isinstance(attn_type, bool):
