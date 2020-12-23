@@ -12,6 +12,7 @@ import copy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from .helpers import build_model_with_cfg
@@ -250,12 +251,12 @@ class iAFF(nn.Module):
         self.local_att = nn.Sequential(
             nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(inter_channels),
-            norm(inter_channels, momentum=0.1**2),
+            norm(inter_channels, momentum=math.sqrt(0.1)),
             #nn.ReLU(inplace=True),
             act(inplace=True),
             nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(channels),
-            norm(channels, momentum=0.1**2)
+            norm(channels, momentum=momentum=math.sqrt(0.1))
         )
 
         # 全局注意力
@@ -263,36 +264,36 @@ class iAFF(nn.Module):
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(inter_channels),
-            norm(inter_channels, momentum=0.1**2),
+            norm(inter_channels, momentum=math.sqrt(0.1)),
             #nn.ReLU(inplace=True),
             act(inplace=True),
             nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(channels),
-            norm(channels, momentum=0.1**2)
+            norm(channels, momentum=momentum=math.sqrt(0.1))
         )
 
         # 第二次本地注意力
         self.local_att2 = nn.Sequential(
             nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(inter_channels),
-            norm(inter_channels, momentum=0.1**2),
+            norm(inter_channels, momentum=math.sqrt(0.1)),
             #nn.ReLU(inplace=True),
             act(inplace=True),
             nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(channels),
-            norm(channels, momentum=0.1**2)
+            norm(channels, momentum=math.sqrt(0.1))
         )
         # 第二次全局注意力
         self.global_att2 = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(inter_channels),
-            norm(inter_channels, momentum=0.1**2),
+            norm(inter_channels, momentum=math.sqrt(0.1)),
             #nn.ReLU(inplace=True),
             act(inplace=True),
             nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(channels),
-            norm(channels, momentum=0.1**2)
+            norm(channels, momentum=math.sqrt(0.1))
         )
 
         self.sigmoid = nn.Sigmoid()
