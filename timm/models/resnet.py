@@ -18,6 +18,8 @@ from .helpers import build_model_with_cfg
 from .layers import DropBlock2d, DropPath, AvgPool2dSame, BlurPool2d, create_attn, create_classifier
 from .registry import register_model
 import random
+import torch.utils.checkpoint as checkpoint
+
 
 __all__ = ['ResNet', 'BasicBlock', 'Bottleneck']  # model_registry will add each entrypoint fn to this
 
@@ -225,84 +227,91 @@ default_cfgs = {
         interpolation='bicubic')
 }
 
-class aff(nn.Module):
-    def __init__(self, in_chs, r = 4, norm_layer=None, act_layer=None):
-        super(aff, self).__init__()
-        #assert activation in ['relu', 'mish', 'acon', 'probact']
-        self.in_chs = in_chs
-        self.r = r
-        self.n_channels = self.in_chs
-        
-        if act_layer is None:
-            self.act1 = nn.ReLU(inplace=True)
-            self.act2 = nn.ReLU(inplace=True)
-        else:
-            self.act1 = act_layer(inplace=True)
-            self.act2 = act_layer(inplace=True)
+class iAFF(nn.Module):
+    '''
+    多特征融合 iAFF
+    '''
+
+    def __init__(self, channels=64, r=4, norm_layer=None, act_layer=None):
+        super(iAFF, self).__init__()
+        inter_channels = int(channels // r)
         
         if norm_layer is None:
-            norm=nn.BatchNorm2d
+            norm = nn.BatchNorm2d
         else:
-            norm=norm_layer
-            
-        self.conv1_1 = nn.Conv2d(self.in_chs, self.in_chs//self.r, 1, stride = 1)
-        self.bn1_1 = norm(self.in_chs//self.r)
-        self.conv2_1 = nn.Conv2d(self.in_chs, self.in_chs//self.r, 1, stride = 1)
-        self.bn2_1 = norm(self.in_chs//self.r)
+            norm = norm_layer
+        
+        if act_layer is None:
+            act = nn.ReLU
+        else:
+            act = act_layer
 
-        self.conv1_2 = nn.Conv2d(self.in_chs//self.r, self.in_chs, 1, stride = 1)
-        self.bn1_2 = norm(self.in_chs)
-        self.conv2_2 = nn.Conv2d(self.in_chs//self.r, self.in_chs, 1, stride = 1)
-        self.bn2_2 = norm(self.in_chs)
+        # 本地注意力
+        self.local_att = nn.Sequential(
+            nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(inter_channels),
+            norm(inter_channels, momentum=0.1**2),
+            #nn.ReLU(inplace=True),
+            act(inplace=True),
+            nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(channels),
+            norm(channels, momentum=0.1**2)
+        )
 
+        # 全局注意力
+        self.global_att = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(inter_channels),
+            norm(inter_channels, momentum=0.1**2),
+            #nn.ReLU(inplace=True),
+            act(inplace=True),
+            nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(channels),
+            norm(channels, momentum=0.1**2)
+        )
+
+        # 第二次本地注意力
+        self.local_att2 = nn.Sequential(
+            nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(inter_channels),
+            norm(inter_channels, momentum=0.1**2),
+            #nn.ReLU(inplace=True),
+            act(inplace=True),
+            nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(channels),
+            norm(channels, momentum=0.1**2)
+        )
+        # 第二次全局注意力
+        self.global_att2 = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(inter_channels),
+            norm(inter_channels, momentum=0.1**2),
+            #nn.ReLU(inplace=True),
+            act(inplace=True),
+            nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
+            #nn.BatchNorm2d(channels),
+            norm(channels, momentum=0.1**2)
+        )
 
         self.sigmoid = nn.Sigmoid()
-    def forward(self, x):
-        b,c,h,w = x.shape
-        branch_1 = F.avg_pool2d(x, (h,w))
 
-        branch_1 = self.conv1_1(branch_1)
-        branch_1 = self.bn1_1(branch_1)
-        branch_1 = self.act1(branch_1)
+    def forward(self, x, residual):
+        xa = x + residual
+        xl = self.local_att(xa)
+        xg = self.global_att(xa)
+        xlg = xl + xg
+        wei = self.sigmoid(xlg)
+        xi = x * wei + residual * (1 - wei)
 
-        branch_1 = self.conv1_2(branch_1)
-        branch_1 = self.bn1_2(branch_1)
+        xl2 = self.local_att2(xi)
+        xg2 = self.global_att(xi)
+        xlg2 = xl2 + xg2
+        wei2 = self.sigmoid(xlg2)
+        xo = x * wei2 + residual * (1 - wei2)
+        return xo
 
-
-        branch_2 = self.conv2_1(x)
-        branch_2 = self.bn2_1(branch_2)
-        branch_2 = self.act2(branch_2)
-
-        branch_2 = self.conv2_2(branch_2)
-        branch_2 = self.bn2_2(branch_2)
-
-        #out = branch_1 + branch_2
-        #out = self.sigmoid(out)
-        #return out
-        return self.sigmoid(branch_1 + branch_2)
-
-class iaff(nn.Module):
-    def __init__(self, in_chs, r = 4, norm_layer=None, act_layer=None):
-        super(iaff, self).__init__()
-        #assert activation in ['relu', 'mish', 'acon', 'probact']
-        self.in_chs = in_chs
-        self.r = r
-        self.n_channels = self.in_chs
-        
-        self.aff1 = aff(self.in_chs, norm_layer=norm_layer, act_layer=act_layer)
-        self.aff2 = aff(self.in_chs, norm_layer=norm_layer, act_layer=act_layer)
-        
-    def forward(self, x, shortcut):
-        #z1 = x + shortcut
-        fusion_weights = self.aff1(x + shortcut)
-        #x_fuse = shortcut*fusion_weights
-        #y_fuse = x*(1-fusion_weights)
-        #z1 = shortcut*fusion_weights + x*(1-fusion_weights)
-        fusion_weights = self.aff2(shortcut*fusion_weights + x*(1-fusion_weights))
-        #x_fuse = shortcut*fusion_weights
-        #y_fuse = x*(1-fusion_weights)
-        #out = x_fuse + y_fuse
-        return shortcut*fusion_weights + x*(1-fusion_weights)
     
 class acon(nn.Module):
     def __init__(self, n_channels):
@@ -370,6 +379,9 @@ class BasicBlock(nn.Module):
         self.dilation = dilation
         self.drop_block = drop_block
         self.drop_path = drop_path
+        self.att_fusion = att_fusion
+        if att_fusion:
+            self.iaff = iAFF(channels=outplanes, r=4, norm_layer=norm_layer, act_layer=act_layer)
 
     def zero_init_last_bn(self):
         nn.init.zeros_(self.bn2.weight)
@@ -398,10 +410,22 @@ class BasicBlock(nn.Module):
 
         if self.downsample is not None:
             residual = self.downsample(residual)
-        x += residual
+        
+        if self.att_fusion:
+            x = checkpoint.checkpoint(self.custom(self.iaff), x, residual)
+            #x = self.iaff(x, residual)
+        else:
+            x += residual
+        
         x = self.act2(x)
 
         return x
+    
+    def custom(self, module):
+        def custom_forward(*inputs):
+            inputs = module(inputs[0], inputs[1])
+            return inputs
+        return custom_forward
 
 
 class Bottleneck(nn.Module):
@@ -443,6 +467,9 @@ class Bottleneck(nn.Module):
         self.dilation = dilation
         self.drop_block = drop_block
         self.drop_path = drop_path
+        self.att_fusion = att_fusion
+        if att_fusion:
+            self.iaff = iAFF(channels=outplanes, r=4, norm_layer=norm_layer, act_layer=act_layer)
 
     def zero_init_last_bn(self):
         nn.init.zeros_(self.bn3.weight)
@@ -477,10 +504,20 @@ class Bottleneck(nn.Module):
 
         if self.downsample is not None:
             residual = self.downsample(residual)
-        x += residual
+        if self.att_fusion:
+            #x = self.iaff(x, residual)
+            x = checkpoint.checkpoint(self.custom(self.iaff), x, residual)
+        else:
+            x += residual
         x = self.act3(x)
 
         return x
+    
+    def custom(self, module):
+        def custom_forward(*inputs):
+            inputs = module(inputs[0], inputs[1])
+            return inputs
+        return custom_forward
 
 
 def downsample_conv(
