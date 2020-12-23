@@ -256,7 +256,7 @@ class iAFF(nn.Module):
             act(inplace=True),
             nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(channels),
-            norm(channels, momentum=momentum=math.sqrt(0.1))
+            norm(channels, momentum=math.sqrt(0.1))
         )
 
         # 全局注意力
@@ -269,7 +269,7 @@ class iAFF(nn.Module):
             act(inplace=True),
             nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
             #nn.BatchNorm2d(channels),
-            norm(channels, momentum=momentum=math.sqrt(0.1))
+            norm(channels, momentum=math.sqrt(0.1))
         )
 
         # 第二次本地注意力
