@@ -40,7 +40,7 @@ import torch,math
 
 def get_1d_dct(i, freq, L):
     result = math.cos(math.pi* freq* (i+0.5)/L)/math.sqrt(L)
-    if freq = 0:
+    if freq == 0:
         return result
     else:
         return result*math.sqrt(2)
