@@ -17,6 +17,7 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from .helpers import build_model_with_cfg
 from .layers import DropBlock2d, DropPath, AvgPool2dSame, BlurPool2d, create_attn, create_classifier
 from .registry import register_model
+import random
 
 __all__ = ['ResNet', 'BasicBlock', 'Bottleneck']  # model_registry will add each entrypoint fn to this
 
@@ -224,7 +225,109 @@ default_cfgs = {
         interpolation='bicubic')
 }
 
+class aff(nn.Module):
+    def __init__(self, in_chs, r = 4, norm_layer=None, act_layer=None):
+        super(aff, self).__init__()
+        #assert activation in ['relu', 'mish', 'acon', 'probact']
+        self.in_chs = in_chs
+        self.r = r
+        self.n_channels = self.in_chs
+        
+        if act_layer is None:
+            self.act1 = nn.ReLU(inplace=True)
+            self.act2 = nn.ReLU(inplace=True)
+        else:
+            self.act1 = act_layer(inplace=True)
+            self.act2 = act_layer(inplace=True)
+        
+        if norm_layer is None:
+            norm=nn.BatchNorm2d
+        else:
+            norm=norm_layer
+            
+        self.conv1_1 = nn.Conv2d(self.in_chs, self.in_chs//self.r, 1, stride = 1)
+        self.bn1_1 = norm(self.in_chs//self.r)
+        self.conv2_1 = nn.Conv2d(self.in_chs, self.in_chs//self.r, 1, stride = 1)
+        self.bn2_1 = norm(self.in_chs//self.r)
 
+        self.conv1_2 = nn.Conv2d(self.in_chs//self.r, self.in_chs, 1, stride = 1)
+        self.bn1_2 = norm(self.in_chs)
+        self.conv2_2 = nn.Conv2d(self.in_chs//self.r, self.in_chs, 1, stride = 1)
+        self.bn2_2 = norm(self.in_chs)
+
+
+        self.sigmoid = nn.Sigmoid()
+    def forward(self, x):
+        b,c,h,w = x.shape
+        branch_1 = F.avg_pool2d(x, (h,w))
+
+        branch_1 = self.conv1_1(branch_1)
+        branch_1 = self.bn1_1(branch_1)
+        branch_1 = self.act1(branch_1)
+
+        branch_1 = self.conv1_2(branch_1)
+        branch_1 = self.bn1_2(branch_1)
+
+
+        branch_2 = self.conv2_1(x)
+        branch_2 = self.bn2_1(branch_2)
+        branch_2 = self.act2(branch_2)
+
+        branch_2 = self.conv2_2(branch_2)
+        branch_2 = self.bn2_2(branch_2)
+
+        #out = branch_1 + branch_2
+        #out = self.sigmoid(out)
+        #return out
+        return self.sigmoid(branch_1 + branch_2)
+
+class iaff(nn.Module):
+    def __init__(self, in_chs, r = 4, norm_layer=None, act_layer=None):
+        super(iaff, self).__init__()
+        #assert activation in ['relu', 'mish', 'acon', 'probact']
+        self.in_chs = in_chs
+        self.r = r
+        self.n_channels = self.in_chs
+        
+        self.aff1 = aff(self.in_chs, norm_layer=norm_layer, act_layer=act_layer)
+        self.aff2 = aff(self.in_chs, norm_layer=norm_layer, act_layer=act_layer)
+        
+    def forward(self, x, shortcut):
+        #z1 = x + shortcut
+        fusion_weights = self.aff1(x + shortcut)
+        #x_fuse = shortcut*fusion_weights
+        #y_fuse = x*(1-fusion_weights)
+        #z1 = shortcut*fusion_weights + x*(1-fusion_weights)
+        fusion_weights = self.aff2(shortcut*fusion_weights + x*(1-fusion_weights))
+        #x_fuse = shortcut*fusion_weights
+        #y_fuse = x*(1-fusion_weights)
+        #out = x_fuse + y_fuse
+        return shortcut*fusion_weights + x*(1-fusion_weights)
+    
+class acon(nn.Module):
+    def __init__(self, n_channels):
+        super(acon, self).__init__()
+        self.p1 = torch.nn.Parameter(torch.tensor(random.uniform(0, 1)))
+        self.p1.requires_grad = True
+        self.p2 = torch.nn.Parameter(torch.tensor(random.uniform(0, 1)))
+        self.p2.requires_grad = True
+        self.r = 4
+        self.n_channels = n_channels
+        self.lin1 = nn.Linear(self.n_channels, self.n_channels//self.r)
+        self.lin2 = nn.Linear(self.n_channels//self.r, self.n_channels)
+    def forward(self, x):
+        in_tensor = x
+        n_channels = in_tensor.size()[1]
+        k_size = in_tensor.size()[-1]
+        beta = torch.nn.AvgPool2d(k_size)(in_tensor)
+        beta = beta.squeeze(dim = -1)
+        beta = beta.squeeze(dim = -1)
+        beta = self.lin1(beta)
+        beta = self.lin2(beta)
+        beta = torch.sigmoid(beta)
+        out_tensor = (self.p1 - self.p2)*torch.sigmoid(beta[:,:,None,None]*(self.p1-self.p2)*in_tensor) + self.p2*in_tensor        
+        return out_tensor
+    
 def get_padding(kernel_size, stride, dilation=1):
     padding = ((stride - 1) + dilation * (kernel_size - 1)) // 2
     return padding
@@ -235,7 +338,7 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, cardinality=1, base_width=64,
                  reduce_first=1, dilation=1, first_dilation=None, act_layer=nn.ReLU, norm_layer=nn.BatchNorm2d,
-                 attn_layer=None, aa_layer=None, drop_block=None, drop_path=None):
+                 attn_layer=None, aa_layer=None, drop_block=None, drop_path=None, att_fusion=False, use_acon=False):
         super(BasicBlock, self).__init__()
 
         assert cardinality == 1, 'BasicBlock only supports cardinality of 1'
@@ -257,8 +360,11 @@ class BasicBlock(nn.Module):
         self.bn2 = norm_layer(outplanes)
 
         self.se = create_attn(attn_layer, outplanes)
-
-        self.act2 = act_layer(inplace=True)
+        
+        if use_acon:
+            self.act2 = acon(outplanes)
+        else:
+            self.act2 = act_layer(inplace=True)
         self.downsample = downsample
         self.stride = stride
         self.dilation = dilation
@@ -303,7 +409,7 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, cardinality=1, base_width=64,
                  reduce_first=1, dilation=1, first_dilation=None, act_layer=nn.ReLU, norm_layer=nn.BatchNorm2d,
-                 attn_layer=None, aa_layer=None, drop_block=None, drop_path=None):
+                 attn_layer=None, aa_layer=None, drop_block=None, drop_path=None, att_fusion=False, use_acon=False):
         super(Bottleneck, self).__init__()
 
         width = int(math.floor(planes * (base_width / 64)) * cardinality)
@@ -327,8 +433,11 @@ class Bottleneck(nn.Module):
         self.bn3 = norm_layer(outplanes)
 
         self.se = create_attn(attn_layer, outplanes)
-
-        self.act3 = act_layer(inplace=True)
+        
+        if use_acon:
+            self.act3 = acon(outplanes)
+        else:
+            self.act3 = act_layer(inplace=True)
         self.downsample = downsample
         self.stride = stride
         self.dilation = dilation
