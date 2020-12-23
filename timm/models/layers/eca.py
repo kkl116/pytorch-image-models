@@ -36,7 +36,51 @@ SOFTWARE.
 import math
 from torch import nn
 import torch.nn.functional as F
+import torch,math
 
+def get_1d_dct(i, freq, L):
+    result = math.cos(math.pi* freq* (i+0.5)/L)/math.sqrt(L)
+    if freq = 0:
+        return result
+    else:
+        return result*math.sqrt(2)
+def get_dct_weights(width, height, channel, fidx_u, fidx_v):
+    dct_weights=torch.zeros(1, channel, width, height)
+    c_part = channel//len(fidx_u)
+    for i, (u_x, v_y) in enumerate(zip(fidx_u, fidx_v)):
+        for t_x in range(width):
+            for t_y in range(height):
+                dct_weights[:, i*c_part:(i+1)*c_part, t_x, t_y] = 
+                get_1d_dct(t_x, u_x, width) * get_1d_dct(t_y, v_y, height)
+    return dct_weights
+
+
+class FEcaModule(nn.Module):
+    """Constructs an ECA module.
+
+    Args:
+        channels: Number of channels of the input feature map for use in adaptive kernel sizes
+            for actual calculations according to channel.
+            gamma, beta: when channel is given parameters of mapping function
+            refer to original paper https://arxiv.org/pdf/1910.03151.pdf
+            (default=None. if channel size not given, use k_size given for kernel size.)
+        kernel_size: Adaptive selection of kernel size (default=3)
+    """
+    def __init__(self, channels=None, kernel_size=3, gamma=2, beta=1):
+        super(EcaModule, self).__init__()
+        assert kernel_size % 2 == 1
+        if channels is not None:
+            t = int(abs(math.log(channels, 2) + beta) / gamma)
+            kernel_size = max(t if t % 2 else t + 1, 3)
+        self.register_buffer('pre_computed_dct_weights', get_dct_weights(...))
+        self.conv = nn.Conv1d(1, 1, kernel_size=kernel_size, padding=(kernel_size - 1) // 2, bias=False)
+
+    def forward(self, x):
+        #y = x.mean((2, 3)).view(x.shape[0], 1, -1)  # view for 1d conv
+        y = torch.sum(x*self.pre_computed_dct_weights, dim = [2,3])
+        y = self.conv(y)
+        y = y.view(x.shape[0], -1, 1, 1).sigmoid()
+        return x * y.expand_as(x)
 
 class EcaModule(nn.Module):
     """Constructs an ECA module.
