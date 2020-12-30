@@ -246,6 +246,8 @@ class iAFF(nn.Module):
             act = nn.ReLU
         else:
             act = act_layer
+        
+        self.name = 'iaff'
 
         # 本地注意力
         self.local_att = nn.Sequential(
