@@ -415,8 +415,8 @@ class BasicBlock(nn.Module):
             residual = self.downsample(residual)
         
         if self.att_fusion:
-            x = checkpoint.checkpoint(self.custom(self.iaff), x, residual)
-            #x = self.iaff(x, residual)
+            #x = checkpoint.checkpoint(self.custom(self.iaff), x, residual)
+            x = self.iaff(x, residual)
         else:
             x += residual
         
@@ -508,8 +508,8 @@ class Bottleneck(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(residual)
         if self.att_fusion:
-            #x = self.iaff(x, residual)
-            x = checkpoint.checkpoint(self.custom(self.iaff), x, residual)
+            x = self.iaff(x, residual)
+            #x = checkpoint.checkpoint(self.custom(self.iaff), x, residual)
         else:
             x += residual
         x = self.act3(x)
