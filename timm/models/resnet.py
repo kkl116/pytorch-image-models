@@ -554,7 +554,7 @@ def soft_pool2d(x, kernel_size=2, stride=None, force_inplace=True, ceil_mode=Tru
     return F.avg_pool2d(x.mul(e_x), kernel_size, stride=stride, ceil_mode=ceil_mode, count_include_pad=count_include_pad).mul_(sum(kernel_size)).div_(F.avg_pool2d(e_x, kernel_size, stride=stride, ceil_mode=ceil_mode, count_include_pad=count_include_pad).mul_(sum(kernel_size)))
 
 class SoftPool2d(torch.nn.Module):
-    def __init__(self, kernel_size=2, stride=None, force_inplace=False, ceil_mode=True, count_include_pad=False):
+    def __init__(self, kernel_size=2, stride=None, force_inplace=True, ceil_mode=True, count_include_pad=False):
         super(SoftPool2d, self).__init__()
         self.kernel_size = kernel_size
         self.stride = stride
