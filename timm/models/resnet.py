@@ -20,6 +20,7 @@ from .layers import DropBlock2d, DropPath, AvgPool2dSame, BlurPool2d, create_att
 from .registry import register_model
 import random
 import torch.utils.checkpoint as checkpoint
+import 
 
 
 __all__ = ['ResNet', 'BasicBlock', 'Bottleneck']  # model_registry will add each entrypoint fn to this
@@ -536,7 +537,34 @@ def downsample_conv(
         norm_layer(out_channels)
     ])
 
+def soft_pool2d(x, kernel_size=2, stride=None, force_inplace=True, ceil_mode=True, count_include_pad=False):
+    if x.is_cuda and not force_inplace:
+        return CUDA_SOFTPOOL2d.apply(x, kernel_size, stride)
+    kernel_size = _pair(kernel_size)
+    if stride is None:
+        stride = kernel_size
+    else:
+        stride = _pair(stride)
+    # Get input sizes
+    _, c, h, w = x.size()
+    # Create per-element exponential value sum : Tensor [b x 1 x h x w]
+    e_x = torch.sum(torch.exp(x),dim=1,keepdim=True)
+    # Apply mask to input and pool and calculate the exponential sum
+    # Tensor: [b x c x h x w] -> [b x c x h' x w']
+    return F.avg_pool2d(x.mul(e_x), kernel_size, stride=stride, ceil_mode=ceil_mode, count_include_pad=count_include_pad).mul_(sum(kernel_size)).div_(F.avg_pool2d(e_x, kernel_size, stride=stride, ceil_mode=ceil_mode, count_include_pad=count_include_pad).mul_(sum(kernel_size)))
 
+class SoftPool2d(torch.nn.Module):
+    def __init__(self, kernel_size=2, stride=None, force_inplace=False, ceil_mode=True, count_include_pad=False):
+        super(SoftPool2d, self).__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.force_inplace = force_inplace
+        self.ceil_mode = ceil_mode
+        self.count_include_pad = count_include_pad
+
+    def forward(self, x):
+        return soft_pool2d(x, kernel_size=self.kernel_size, stride=self.stride, force_inplace=self.force_inplace, ceil_mode=self.ceil_mode, count_include_pad=self.count_include_pad)
+    
 def downsample_avg(
         in_channels, out_channels, kernel_size, stride=1, dilation=1, first_dilation=None, norm_layer=None):
     norm_layer = norm_layer or nn.BatchNorm2d
@@ -544,7 +572,8 @@ def downsample_avg(
     if stride == 1 and dilation == 1:
         pool = nn.Identity()
     else:
-        avg_pool_fn = AvgPool2dSame if avg_stride == 1 and dilation > 1 else nn.AvgPool2d
+        #avg_pool_fn = AvgPool2dSame if avg_stride == 1 and dilation > 1 else nn.AvgPool2d
+        avg_pool_fn = AvgPool2dSame if avg_stride == 1 and dilation > 1 else nn.SoftPool2d
         pool = avg_pool_fn(2, avg_stride, ceil_mode=True, count_include_pad=False)
 
     return nn.Sequential(*[
