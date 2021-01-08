@@ -66,7 +66,7 @@ class FEcaModule(nn.Module):
         kernel_size: Adaptive selection of kernel size (default=3)
     """
     def __init__(self, channels=None, kernel_size=3, gamma=2, beta=1):
-        super(EcaModule, self).__init__()
+        super(FEcaModule, self).__init__()
         assert kernel_size % 2 == 1
         if channels is not None:
             t = int(abs(math.log(channels, 2) + beta) / gamma)
