@@ -20,7 +20,6 @@ from .layers import DropBlock2d, DropPath, AvgPool2dSame, BlurPool2d, create_att
 from .registry import register_model
 import random
 import torch.utils.checkpoint as checkpoint
-import 
 
 
 __all__ = ['ResNet', 'BasicBlock', 'Bottleneck']  # model_registry will add each entrypoint fn to this
