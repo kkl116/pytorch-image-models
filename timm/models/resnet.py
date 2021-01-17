@@ -790,6 +790,22 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         return x
+    
+    def get_all_features(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.act1(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        l1 = x
+        x = self.layer2(x)
+        l2 = x
+        x = self.layer3(x)
+        l3 = x
+        x = self.layer4(x)
+        l4 = x
+        return l1, l2, l3, l4
 
     def forward(self, x):
         x = self.forward_features(x)
