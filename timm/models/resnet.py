@@ -586,8 +586,8 @@ def downsample_avg(
 def drop_blocks(drop_block_rate=0.):
     return [
         None, None,
-        DropBlock2d(drop_block_rate, 10, 0.25) if drop_block_rate else None,
-        DropBlock2d(drop_block_rate, 6, 1.00) if drop_block_rate else None]
+        DropBlock2d(drop_block_rate, 5, 0.25) if drop_block_rate else None,
+        DropBlock2d(drop_block_rate, 3, 1.00) if drop_block_rate else None]
 
 
 def make_blocks(
